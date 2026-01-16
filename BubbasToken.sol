@@ -7,10 +7,18 @@ import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20P
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 contract Btest is ERC20, ERC20Permit, Ownable {
+
     // -------------------------------------------------------------------------
-    // ENGINE
+    // HARD-CODED SYSTEM WALLETS (IMMUTABLE)
     // -------------------------------------------------------------------------
-    address public immutable engine;
+    address public constant ENGINE_WALLET    = 0x1111111111111111111111111111111111111111;
+    address public constant MARKETING_WALLET = 0x2222222222222222222222222222222222222222;
+    address public constant DEV_WALLET       = 0x3333333333333333333333333333333333333333;
+    address public constant LOTTERY_WALLET   = 0x4444444444444444444444444444444444444444;
+    address public constant JACKPOT_WALLET   = 0x5555555555555555555555555555555555555555;
+    address public constant SINK_WALLET      = 0x6666666666666666666666666666666666666666;
+
+    address public constant engine = ENGINE_WALLET;
 
     modifier onlyEngine() {
         require(msg.sender == engine, "Not engine");
@@ -22,7 +30,6 @@ contract Btest is ERC20, ERC20Permit, Ownable {
     // -------------------------------------------------------------------------
     mapping(address => uint256) private _rOwned;
     mapping(address => uint256) private _tOwned;
-
     address[] private _excluded;
 
     uint256 private constant MAX = ~uint256(0);
@@ -31,36 +38,23 @@ contract Btest is ERC20, ERC20Permit, Ownable {
     uint256 private _tFeeTotal;
 
     // -------------------------------------------------------------------------
-    // SYSTEM WALLETS
+    // SYSTEM FLAGS
     // -------------------------------------------------------------------------
-    address public immutable marketingWallet;
-    address public immutable devWallet;
-    address public immutable lotteryWallet;
-    address public immutable jackpotWallet;
-    address public immutable sinkWallet;
-
     mapping(address => bool) public isSystemWallet;
+    mapping(address => bool) public isExcludedFromFee;
+    mapping(address => bool) public isExcludedFromRewards;
+
+    bool public lpExcluded;
 
     // -------------------------------------------------------------------------
     // SPLITS (SUM = 100)
     // -------------------------------------------------------------------------
-    uint16 public immutable reflectionShare;
-    uint16 public immutable sinkShare;
-    uint16 public immutable marketingShare;
-    uint16 public immutable devShare;
-    uint16 public immutable lotteryShare;
-    uint16 public immutable jackpotShare;
-
-    // -------------------------------------------------------------------------
-    // FLAGS
-    // -------------------------------------------------------------------------
-    mapping(address => bool) public isExcludedFromFee;
-    mapping(address => bool) public isExcludedFromRewards;
-
-    // -------------------------------------------------------------------------
-    // LP EXCLUSION FLAG
-    // -------------------------------------------------------------------------
-    bool public lpExcluded;
+    uint16 public constant reflectionShare = 20;
+    uint16 public constant sinkShare       = 30;
+    uint16 public constant marketingShare  = 10;
+    uint16 public constant devShare        = 10;
+    uint16 public constant lotteryShare    = 18;
+    uint16 public constant jackpotShare    = 12;
 
     // -------------------------------------------------------------------------
     // EVENTS
@@ -70,63 +64,41 @@ contract Btest is ERC20, ERC20Permit, Ownable {
     // -------------------------------------------------------------------------
     // CONSTRUCTOR
     // -------------------------------------------------------------------------
-    constructor(
-        address initialOwner,
-        address _engine,
-        address _marketing,
-        address _dev,
-        address _lottery,
-        address _jackpot,
-        address _sink
-    )
+    constructor(address initialOwner)
         ERC20("Btest", "BTEST")
         ERC20Permit("Btest")
         Ownable(initialOwner)
     {
-        require(_engine != address(0), "Zero engine");
-        engine = _engine;
+        // register system wallets
+        isSystemWallet[ENGINE_WALLET]    = true;
+        isSystemWallet[MARKETING_WALLET] = true;
+        isSystemWallet[DEV_WALLET]       = true;
+        isSystemWallet[LOTTERY_WALLET]   = true;
+        isSystemWallet[JACKPOT_WALLET]   = true;
+        isSystemWallet[SINK_WALLET]      = true;
 
-        reflectionShare = 20;
-        sinkShare = 30;
-        marketingShare = 10;
-        devShare = 10;
-        lotteryShare = 18;
-        jackpotShare = 12;
+        // exclude system wallets from reflections
+        isExcludedFromRewards[ENGINE_WALLET]    = true;
+        isExcludedFromRewards[MARKETING_WALLET] = true;
+        isExcludedFromRewards[DEV_WALLET]       = true;
+        isExcludedFromRewards[LOTTERY_WALLET]   = true;
+        isExcludedFromRewards[JACKPOT_WALLET]   = true;
+        isExcludedFromRewards[SINK_WALLET]      = true;
 
-        require(
-            reflectionShare +
-            sinkShare +
-            marketingShare +
-            devShare +
-            lotteryShare +
-            jackpotShare == 100,
-            "Invalid splits"
-        );
+        // ✅ exclude system wallets from fees (FIX)
+        isExcludedFromFee[ENGINE_WALLET]    = true;
+        isExcludedFromFee[MARKETING_WALLET] = true;
+        isExcludedFromFee[DEV_WALLET]       = true;
+        isExcludedFromFee[LOTTERY_WALLET]   = true;
+        isExcludedFromFee[JACKPOT_WALLET]   = true;
+        isExcludedFromFee[SINK_WALLET]      = true;
 
-        marketingWallet = _marketing;
-        devWallet = _dev;
-        lotteryWallet = _lottery;
-        jackpotWallet = _jackpot;
-        sinkWallet = _sink;
-
-        isSystemWallet[_marketing] = true;
-        isSystemWallet[_dev] = true;
-        isSystemWallet[_lottery] = true;
-        isSystemWallet[_jackpot] = true;
-        isSystemWallet[_sink] = true;
-
-        // Exclude ALL system wallets from reflections
-        isExcludedFromRewards[marketingWallet] = true;
-        isExcludedFromRewards[devWallet] = true;
-        isExcludedFromRewards[lotteryWallet] = true;
-        isExcludedFromRewards[jackpotWallet] = true;
-        isExcludedFromRewards[sinkWallet] = true;
-
-        _excluded.push(marketingWallet);
-        _excluded.push(devWallet);
-        _excluded.push(lotteryWallet);
-        _excluded.push(jackpotWallet);
-        _excluded.push(sinkWallet);
+        _excluded.push(ENGINE_WALLET);
+        _excluded.push(MARKETING_WALLET);
+        _excluded.push(DEV_WALLET);
+        _excluded.push(LOTTERY_WALLET);
+        _excluded.push(JACKPOT_WALLET);
+        _excluded.push(SINK_WALLET);
 
         // RFI-authoritative mint
         _mint(initialOwner, _tTotal);
@@ -151,22 +123,22 @@ contract Btest is ERC20, ERC20Permit, Ownable {
             return;
         }
 
-        require(from != sinkWallet, "Sink is locked");
-        require(!isSystemWallet[from], "System wallet locked");
+        require(from != SINK_WALLET, "Sink locked");
+        require(!isSystemWallet[from], "System locked");
 
         bool takeFee = !(isExcludedFromFee[from] || isExcludedFromFee[to]);
         _tokenTransfer(from, to, amount, takeFee);
     }
 
     // -------------------------------------------------------------------------
-    // SYSTEM PAYOUT (TAX-FREE)
+    // SYSTEM PAYOUT (ENGINE ONLY, TAX-FREE)
     // -------------------------------------------------------------------------
     function systemPayout(address from, address to, uint256 amount)
         external
         onlyEngine
     {
         require(isSystemWallet[from], "Not system wallet");
-        require(from != sinkWallet, "Sink cannot pay");
+        require(from != SINK_WALLET, "Sink cannot pay");
         require(!isSystemWallet[to], "No system-to-system");
 
         uint256 rate = _getRate();
@@ -182,21 +154,15 @@ contract Btest is ERC20, ERC20Permit, Ownable {
     }
 
     // -------------------------------------------------------------------------
-    // LP EXCLUSION (EXACT FUNCTION AS REQUESTED)
+    // LP EXCLUSION
     // -------------------------------------------------------------------------
-    function excludeLPFromRewards(address lp)
-        external
-        onlyOwner
-    {
-        require(!lpExcluded, "LP already excluded");
+    function excludeLPFromRewards(address lp) external onlyOwner {
+        require(!lpExcluded, "LP excluded");
         require(lp != address(0), "Zero address");
 
         isExcludedFromRewards[lp] = true;
         _excluded.push(lp);
-
-        // convert reflected balance to token balance
         _tOwned[lp] = tokenFromReflection(_rOwned[lp]);
-
         lpExcluded = true;
     }
 
@@ -260,11 +226,11 @@ contract Btest is ERC20, ERC20Permit, Ownable {
         _rTotal -= tReflect * rate;
         _tFeeTotal += tReflect;
 
-        _takeFee(from, sinkWallet,      (taxAmount * sinkShare) / 100, rate);
-        _takeFee(from, marketingWallet, (taxAmount * marketingShare) / 100, rate);
-        _takeFee(from, devWallet,       (taxAmount * devShare) / 100, rate);
-        _takeFee(from, lotteryWallet,   (taxAmount * lotteryShare) / 100, rate);
-        _takeFee(from, jackpotWallet,   (taxAmount * jackpotShare) / 100, rate);
+        _takeFee(from, SINK_WALLET,      (taxAmount * sinkShare) / 100, rate);
+        _takeFee(from, MARKETING_WALLET, (taxAmount * marketingShare) / 100, rate);
+        _takeFee(from, DEV_WALLET,       (taxAmount * devShare) / 100, rate);
+        _takeFee(from, LOTTERY_WALLET,   (taxAmount * lotteryShare) / 100, rate);
+        _takeFee(from, JACKPOT_WALLET,   (taxAmount * jackpotShare) / 100, rate);
 
         emit TaxApplied(from, taxAmount, taxRate);
     }
@@ -290,9 +256,8 @@ contract Btest is ERC20, ERC20Permit, Ownable {
         tSupply = _tTotal;
 
         for (uint256 i = 0; i < _excluded.length; i++) {
-            address acc = _excluded[i];
-            rSupply -= _rOwned[acc];
-            tSupply -= _tOwned[acc];
+            rSupply -= _rOwned[_excluded[i]];
+            tSupply -= _tOwned[_excluded[i]];
         }
 
         if (rSupply < _rTotal / _tTotal) return (_rTotal, _tTotal);
