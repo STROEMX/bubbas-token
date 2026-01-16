@@ -19,7 +19,7 @@ contract Btest is ERC20, ERC20Permit, Ownable {
     uint256 private _tFeeTotal;
 
     // -------------------------------------------------------------------------
-    // SYSTEM WALLETS (IMMUTABLE)
+    // SYSTEM WALLETS
     // -------------------------------------------------------------------------
     address public immutable marketingWallet;
     address public immutable devWallet;
@@ -30,7 +30,7 @@ contract Btest is ERC20, ERC20Permit, Ownable {
     mapping(address => bool) public isSystemWallet;
 
     // -------------------------------------------------------------------------
-    // SPLITS (IMMUTABLE — SUM = 100)
+    // SPLITS (SUM = 100)
     // -------------------------------------------------------------------------
     uint16 public immutable reflectionShare;
     uint16 public immutable sinkShare;
@@ -42,7 +42,7 @@ contract Btest is ERC20, ERC20Permit, Ownable {
     // -------------------------------------------------------------------------
     // TAX GUARD
     // -------------------------------------------------------------------------
-    uint16 public constant MAX_TAX_BPS = 100; // 1.00%
+    uint16 public constant MAX_TAX_BPS = 100;
 
     // -------------------------------------------------------------------------
     // FLAGS
@@ -54,21 +54,14 @@ contract Btest is ERC20, ERC20Permit, Ownable {
     address[] private _excluded;
 
     // -------------------------------------------------------------------------
-    // LP REGISTRY (ONE-WAY)
+    // LP REGISTRY
     // -------------------------------------------------------------------------
     mapping(address => bool) public isLiquidityPool;
 
     // -------------------------------------------------------------------------
     // EVENTS
     // -------------------------------------------------------------------------
-    event TaxApplied(
-        address indexed from,
-        address indexed to,
-        uint256 amount,
-        uint256 taxAmount,
-        uint16 taxRate
-    );
-
+    event TaxApplied(address indexed from, address indexed to, uint256 amount, uint256 tax, uint16 rate);
     event RewardsExcluded(address indexed account, bool excluded);
     event LiquidityPoolRegistered(address indexed lp);
 
@@ -85,11 +78,11 @@ contract Btest is ERC20, ERC20Permit, Ownable {
         Ownable(initialOwner)
     {
         reflectionShare = 20;
-        sinkShare       = 30;
-        marketingShare  = 10;
-        devShare        = 10;
-        lotteryShare    = 18;
-        jackpotShare    = 12;
+        sinkShare = 30;
+        marketingShare = 10;
+        devShare = 10;
+        lotteryShare = 18;
+        jackpotShare = 12;
 
         require(
             reflectionShare +
@@ -102,10 +95,10 @@ contract Btest is ERC20, ERC20Permit, Ownable {
         );
 
         marketingWallet = _marketing;
-        devWallet       = _dev;
-        lotteryWallet   = _lottery;
-        jackpotWallet   = _jackpot;
-        sinkWallet      = _sink;
+        devWallet = _dev;
+        lotteryWallet = _lottery;
+        jackpotWallet = _jackpot;
+        sinkWallet = _sink;
 
         isSystemWallet[_marketing] = true;
         isSystemWallet[_dev] = true;
@@ -116,7 +109,6 @@ contract Btest is ERC20, ERC20Permit, Ownable {
         _rOwned[initialOwner] = _rTotal;
         emit Transfer(address(0), initialOwner, _tTotal);
 
-        // System wallets: permanently excluded from rewards
         _excludeFromReward(_marketing, true);
         _excludeFromReward(_dev, true);
         _excludeFromReward(_lottery, true);
@@ -127,7 +119,6 @@ contract Btest is ERC20, ERC20Permit, Ownable {
         permanentlyExcluded[_lottery] = true;
         permanentlyExcluded[_jackpot] = true;
 
-        // Sink: no tax, no rewards
         isExcludedFromFee[_sink] = true;
         _excludeFromReward(_sink, true);
         permanentlyExcluded[_sink] = true;
@@ -158,41 +149,11 @@ contract Btest is ERC20, ERC20Permit, Ownable {
     }
 
     // -------------------------------------------------------------------------
-    // SYSTEM PAYOUT
+    // TRANSFER (RATE-LOCKED)
     // -------------------------------------------------------------------------
-    function systemPayout(address from, address to, uint256 amount)
-        external
-        onlyOwner
-    {
-        require(isSystemWallet[from], "Not system wallet");
-        require(from != sinkWallet, "Sink locked");
+    function _tokenTransfer(address sender, address recipient, uint256 amount, bool takeFee) private {
+        uint256 rate = _getRate(); // 🔒 LOCK RATE ONCE
 
-        bool takeFee = !(isExcludedFromFee[from] || isExcludedFromFee[to]);
-        _tokenTransfer(from, to, amount, takeFee);
-    }
-
-    // -------------------------------------------------------------------------
-    // LP REGISTRATION (ONE-WAY, IRREVERSIBLE)
-    // -------------------------------------------------------------------------
-    function registerLiquidityPool(address lp) external onlyOwner {
-        require(!isLiquidityPool[lp], "Already registered");
-
-        isLiquidityPool[lp] = true;
-        _excludeFromReward(lp, true);
-        permanentlyExcluded[lp] = true;
-
-        emit LiquidityPoolRegistered(lp);
-    }
-
-    // -------------------------------------------------------------------------
-    // INTERNAL TRANSFER LOGIC
-    // -------------------------------------------------------------------------
-    function _tokenTransfer(
-        address sender,
-        address recipient,
-        uint256 amount,
-        bool takeFee
-    ) private {
         uint256 taxAmount;
         uint16 taxRate;
 
@@ -202,12 +163,8 @@ contract Btest is ERC20, ERC20Permit, Ownable {
             taxAmount = (amount * taxRate) / 10_000;
         }
 
-        (
-            uint256 rAmount,
-            uint256 rTransfer,
-            ,
-            uint256 tTransfer
-        ) = _getValues(amount, taxAmount);
+        (uint256 rAmount, uint256 rTransfer, uint256 tTransfer) =
+            _getValues(amount, taxAmount, rate);
 
         _rOwned[sender] -= rAmount;
         if (isExcludedFromRewards[sender]) _tOwned[sender] -= amount;
@@ -218,19 +175,21 @@ contract Btest is ERC20, ERC20Permit, Ownable {
         emit Transfer(sender, recipient, tTransfer);
 
         if (taxAmount > 0) {
-            _distributeTax(sender, recipient, amount, taxAmount, taxRate);
+            _distributeTax(sender, recipient, amount, taxAmount, taxRate, rate);
         }
     }
 
+    // -------------------------------------------------------------------------
+    // TAX DISTRIBUTION (RATE-SAFE)
+    // -------------------------------------------------------------------------
     function _distributeTax(
         address from,
         address to,
         uint256 fullAmount,
         uint256 taxAmount,
-        uint16 taxRate
+        uint16 taxRate,
+        uint256 rate
     ) private {
-        uint256 rate = _getRate();
-
         uint256 tReflect = (taxAmount * reflectionShare) / 100;
         _rTotal -= tReflect * rate;
         _tFeeTotal += tReflect;
@@ -244,12 +203,7 @@ contract Btest is ERC20, ERC20Permit, Ownable {
         emit TaxApplied(from, to, fullAmount, taxAmount, taxRate);
     }
 
-    function _takeFee(
-        address from,
-        address to,
-        uint256 tAmount,
-        uint256 rate
-    ) private {
+    function _takeFee(address from, address to, uint256 tAmount, uint256 rate) private {
         if (tAmount == 0) return;
 
         uint256 rAmount = tAmount * rate;
@@ -260,37 +214,7 @@ contract Btest is ERC20, ERC20Permit, Ownable {
     }
 
     // -------------------------------------------------------------------------
-    // REWARD EXCLUSION (FULLY SAFE)
-    // -------------------------------------------------------------------------
-    function _excludeFromReward(address account, bool exclude) private {
-        require(!(permanentlyExcluded[account] && !exclude), "Permanent exclusion");
-
-        if (exclude == isExcludedFromRewards[account]) return;
-
-        if (exclude) {
-            _tOwned[account] = tokenFromReflection(_rOwned[account]);
-            isExcludedFromRewards[account] = true;
-            _excluded.push(account);
-        } else {
-            _rOwned[account] = _tOwned[account] * _getRate();
-            _tOwned[account] = 0;
-            isExcludedFromRewards[account] = false;
-
-            // ✅ FIX: remove from _excluded[]
-            for (uint256 i = 0; i < _excluded.length; i++) {
-                if (_excluded[i] == account) {
-                    _excluded[i] = _excluded[_excluded.length - 1];
-                    _excluded.pop();
-                    break;
-                }
-            }
-        }
-
-        emit RewardsExcluded(account, exclude);
-    }
-
-    // -------------------------------------------------------------------------
-    // RFI INTERNALS
+    // RFI CORE
     // -------------------------------------------------------------------------
     function tokenFromReflection(uint256 rAmount) public view returns (uint256) {
         require(rAmount <= _rTotal, "Invalid rAmount");
@@ -302,11 +226,7 @@ contract Btest is ERC20, ERC20Permit, Ownable {
         return rSupply / tSupply;
     }
 
-    function _getCurrentSupply()
-        private
-        view
-        returns (uint256, uint256)
-    {
+    function _getCurrentSupply() private view returns (uint256, uint256) {
         uint256 rSupply = _rTotal;
         uint256 tSupply = _tTotal;
 
@@ -319,19 +239,13 @@ contract Btest is ERC20, ERC20Permit, Ownable {
         return (rSupply, tSupply);
     }
 
-    function _getValues(uint256 tAmount, uint256 tFee)
+    function _getValues(uint256 tAmount, uint256 tFee, uint256 rate)
         private
-        view
-        returns (
-            uint256 rAmount,
-            uint256 rTransfer,
-            uint256 rFee,
-            uint256 tTransfer
-        )
+        pure
+        returns (uint256 rAmount, uint256 rTransfer, uint256 tTransfer)
     {
-        uint256 rate = _getRate();
         rAmount = tAmount * rate;
-        rFee = tFee * rate;
+        uint256 rFee = tFee * rate;
         rTransfer = rAmount - rFee;
         tTransfer = tAmount - tFee;
     }
