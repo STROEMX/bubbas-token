@@ -11,12 +11,12 @@ contract Btest is ERC20, ERC20Permit, Ownable {
     // -------------------------------------------------------------------------
     // HARD-CODED SYSTEM WALLETS (IMMUTABLE)
     // -------------------------------------------------------------------------
-    address public constant ENGINE_WALLET    = 0x1111111111111111111111111111111111111111;
-    address public constant MARKETING_WALLET = 0x2222222222222222222222222222222222222222;
-    address public constant DEV_WALLET       = 0x3333333333333333333333333333333333333333;
-    address public constant LOTTERY_WALLET   = 0x4444444444444444444444444444444444444444;
-    address public constant JACKPOT_WALLET   = 0x5555555555555555555555555555555555555555;
-    address public constant SINK_WALLET      = 0x6666666666666666666666666666666666666666;
+    address public constant ENGINE_WALLET    = 0x72D5DFE8827E6f117E31668D8E460F1572Be767e;
+    address public constant MARKETING_WALLET = 0xe114aa7982763E8471789EE273316b4609fAb9f8;
+    address public constant DEV_WALLET       = 0xE4d409A5850A914686240165398E0C051A53347F;
+    address public constant LOTTERY_WALLET   = 0x990DC6B4331f1158Acef1408BEe8a521Bde69Cae;
+    address public constant JACKPOT_WALLET   = 0x5E621aDBF14dDF216770535aa980d22a202FBcBE;
+    address public constant SINK_WALLET      = 0xF5F140fC4B10abe1a58598Ee3544e181107DA638;
 
     address public constant engine = ENGINE_WALLET;
 
