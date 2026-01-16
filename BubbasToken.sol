@@ -19,13 +19,15 @@ contract Btest is ERC20, ERC20Permit, Ownable {
     uint256 private _tFeeTotal;
 
     // -------------------------------------------------------------------------
-    // WALLETS
+    // SYSTEM WALLETS (IMMUTABLE)
     // -------------------------------------------------------------------------
-    address public marketingWallet;
-    address public devWallet;
-    address public lotteryWallet;
-    address public jackpotWallet;
-    address public sinkWallet;
+    address public immutable marketingWallet;
+    address public immutable devWallet;
+    address public immutable lotteryWallet;
+    address public immutable jackpotWallet;
+    address public immutable sinkWallet;
+
+    mapping(address => bool) public isSystemWallet;
 
     // -------------------------------------------------------------------------
     // SPLITS (IMMUTABLE — SUM = 100)
@@ -47,16 +49,37 @@ contract Btest is ERC20, ERC20Permit, Ownable {
     // -------------------------------------------------------------------------
     mapping(address => bool) public isExcludedFromFee;
     mapping(address => bool) public isExcludedFromRewards;
+    mapping(address => bool) public permanentlyExcluded;
+
     address[] private _excluded;
+
+    // -------------------------------------------------------------------------
+    // LP REGISTRY (ONE-WAY)
+    // -------------------------------------------------------------------------
+    mapping(address => bool) public isLiquidityPool;
 
     // -------------------------------------------------------------------------
     // EVENTS
     // -------------------------------------------------------------------------
-    event TaxApplied(address indexed from, address indexed to, uint256 amount, uint256 taxAmount, uint16 taxRateBps);
-    event PayTaxUpdated(address indexed account, bool payTax);
-    event RewardsExcluded(address indexed account, bool excluded);
+    event TaxApplied(
+        address indexed from,
+        address indexed to,
+        uint256 amount,
+        uint256 taxAmount,
+        uint16 taxRate
+    );
 
-    constructor(address initialOwner)
+    event RewardsExcluded(address indexed account, bool excluded);
+    event LiquidityPoolRegistered(address indexed lp);
+
+    constructor(
+        address initialOwner,
+        address _marketing,
+        address _dev,
+        address _lottery,
+        address _jackpot,
+        address _sink
+    )
         ERC20("Btest", "BTEST")
         ERC20Permit("Btest")
         Ownable(initialOwner)
@@ -75,34 +98,39 @@ contract Btest is ERC20, ERC20Permit, Ownable {
             devShare +
             lotteryShare +
             jackpotShare == 100,
-            "Tax shares must sum to 100"
+            "Invalid splits"
         );
+
+        marketingWallet = _marketing;
+        devWallet       = _dev;
+        lotteryWallet   = _lottery;
+        jackpotWallet   = _jackpot;
+        sinkWallet      = _sink;
+
+        isSystemWallet[_marketing] = true;
+        isSystemWallet[_dev] = true;
+        isSystemWallet[_lottery] = true;
+        isSystemWallet[_jackpot] = true;
+        isSystemWallet[_sink] = true;
 
         _rOwned[initialOwner] = _rTotal;
         emit Transfer(address(0), initialOwner, _tTotal);
 
-        // ---------------------------------------------------------------------
-        // WALLET ASSIGNMENTS
-        // ---------------------------------------------------------------------
-        marketingWallet = 0xe114aa7982763E8471789EE273316b4609fAb9f8;
-        devWallet       = 0xE4d409A5850A914686240165398E0C051A53347F;
-        lotteryWallet   = 0x990DC6B4331f1158Acef1408BEe8a521Bde69Cae;
-        jackpotWallet   = 0x5E621aDBF14dDF216770535aa980d22a202FBcBE;
-        sinkWallet      = 0xF5F140fC4B10abe1a58598Ee3544e181107DA638;
+        // System wallets: permanently excluded from rewards
+        _excludeFromReward(_marketing, true);
+        _excludeFromReward(_dev, true);
+        _excludeFromReward(_lottery, true);
+        _excludeFromReward(_jackpot, true);
 
-        // ---------------------------------------------------------------------
-        // SYSTEM WALLET CONFIGURATION (FINAL FIX)
-        // ---------------------------------------------------------------------
+        permanentlyExcluded[_marketing] = true;
+        permanentlyExcluded[_dev] = true;
+        permanentlyExcluded[_lottery] = true;
+        permanentlyExcluded[_jackpot] = true;
 
-        // Exclude system wallets from reflections (they still pay tax)
-        _excludeFromReward(marketingWallet, true);
-        _excludeFromReward(devWallet, true);
-        _excludeFromReward(lotteryWallet, true);
-        _excludeFromReward(jackpotWallet, true);
-
-        // Sink wallet: no tax, no reflections
-        isExcludedFromFee[sinkWallet] = true;
-        _excludeFromReward(sinkWallet, true);
+        // Sink: no tax, no rewards
+        isExcludedFromFee[_sink] = true;
+        _excludeFromReward(_sink, true);
+        permanentlyExcluded[_sink] = true;
     }
 
     // -------------------------------------------------------------------------
@@ -123,127 +151,120 @@ contract Btest is ERC20, ERC20Permit, Ownable {
             return;
         }
 
+        require(!isSystemWallet[from], "System wallet locked");
+
         bool takeFee = !(isExcludedFromFee[from] || isExcludedFromFee[to]);
         _tokenTransfer(from, to, amount, takeFee);
     }
 
     // -------------------------------------------------------------------------
-    // TRANSFER LOGIC
+    // SYSTEM PAYOUT
     // -------------------------------------------------------------------------
-    function _tokenTransfer(address sender, address recipient, uint256 amount, bool takeFee) private {
+    function systemPayout(address from, address to, uint256 amount)
+        external
+        onlyOwner
+    {
+        require(isSystemWallet[from], "Not system wallet");
+        require(from != sinkWallet, "Sink locked");
+
+        bool takeFee = !(isExcludedFromFee[from] || isExcludedFromFee[to]);
+        _tokenTransfer(from, to, amount, takeFee);
+    }
+
+    // -------------------------------------------------------------------------
+    // LP REGISTRATION (ONE-WAY, IRREVERSIBLE)
+    // -------------------------------------------------------------------------
+    function registerLiquidityPool(address lp) external onlyOwner {
+        require(!isLiquidityPool[lp], "Already registered");
+
+        isLiquidityPool[lp] = true;
+        _excludeFromReward(lp, true);
+        permanentlyExcluded[lp] = true;
+
+        emit LiquidityPoolRegistered(lp);
+    }
+
+    // -------------------------------------------------------------------------
+    // INTERNAL TRANSFER LOGIC
+    // -------------------------------------------------------------------------
+    function _tokenTransfer(
+        address sender,
+        address recipient,
+        uint256 amount,
+        bool takeFee
+    ) private {
         uint256 taxAmount;
         uint16 taxRate;
 
         if (takeFee) {
-            (taxRate, taxAmount,,,,,,) = previewTax(amount);
+            taxRate = _getTaxRate(amount);
             require(taxRate <= MAX_TAX_BPS, "Tax too high");
+            taxAmount = (amount * taxRate) / 10_000;
         }
 
-        (uint256 rAmount, uint256 rTransferAmount,, uint256 tTransferAmount) =
-            _getValues(amount, taxAmount);
+        (
+            uint256 rAmount,
+            uint256 rTransfer,
+            ,
+            uint256 tTransfer
+        ) = _getValues(amount, taxAmount);
 
         _rOwned[sender] -= rAmount;
         if (isExcludedFromRewards[sender]) _tOwned[sender] -= amount;
 
-        _rOwned[recipient] += rTransferAmount;
-        if (isExcludedFromRewards[recipient]) _tOwned[recipient] += tTransferAmount;
+        _rOwned[recipient] += rTransfer;
+        if (isExcludedFromRewards[recipient]) _tOwned[recipient] += tTransfer;
 
-        emit Transfer(sender, recipient, tTransferAmount);
+        emit Transfer(sender, recipient, tTransfer);
 
         if (taxAmount > 0) {
             _distributeTax(sender, recipient, amount, taxAmount, taxRate);
         }
     }
 
-    // -------------------------------------------------------------------------
-    // TAX DISTRIBUTION
-    // -------------------------------------------------------------------------
-    function _distributeTax(address from, address to, uint256 fullAmount, uint256 taxAmount, uint16 taxRate) private {
-        uint256 tReflect  = (taxAmount * reflectionShare) / 100;
-        uint256 tSink     = (taxAmount * sinkShare) / 100;
-        uint256 tMarket   = (taxAmount * marketingShare) / 100;
-        uint256 tDev      = (taxAmount * devShare) / 100;
-        uint256 tLottery  = (taxAmount * lotteryShare) / 100;
-        uint256 tJackpot  = (taxAmount * jackpotShare) / 100;
-
-        uint256 totalSplit = tReflect + tSink + tMarket + tDev + tLottery + tJackpot;
-        if (totalSplit < taxAmount) {
-            tMarket += (taxAmount - totalSplit);
-        }
-
+    function _distributeTax(
+        address from,
+        address to,
+        uint256 fullAmount,
+        uint256 taxAmount,
+        uint16 taxRate
+    ) private {
         uint256 rate = _getRate();
 
-        _rTotal -= (tReflect * rate);
+        uint256 tReflect = (taxAmount * reflectionShare) / 100;
+        _rTotal -= tReflect * rate;
         _tFeeTotal += tReflect;
 
-        _takeFee(from, sinkWallet,      tSink,    rate);
-        _takeFee(from, marketingWallet, tMarket,  rate);
-        _takeFee(from, devWallet,       tDev,     rate);
-        _takeFee(from, lotteryWallet,   tLottery, rate);
-        _takeFee(from, jackpotWallet,   tJackpot, rate);
+        _takeFee(from, sinkWallet,      (taxAmount * sinkShare) / 100, rate);
+        _takeFee(from, marketingWallet, (taxAmount * marketingShare) / 100, rate);
+        _takeFee(from, devWallet,       (taxAmount * devShare) / 100, rate);
+        _takeFee(from, lotteryWallet,   (taxAmount * lotteryShare) / 100, rate);
+        _takeFee(from, jackpotWallet,   (taxAmount * jackpotShare) / 100, rate);
 
         emit TaxApplied(from, to, fullAmount, taxAmount, taxRate);
     }
 
-    function _takeFee(address from, address to, uint256 tAmount, uint256 rate) private {
+    function _takeFee(
+        address from,
+        address to,
+        uint256 tAmount,
+        uint256 rate
+    ) private {
         if (tAmount == 0) return;
 
         uint256 rAmount = tAmount * rate;
         _rOwned[to] += rAmount;
-
         if (isExcludedFromRewards[to]) _tOwned[to] += tAmount;
 
         emit Transfer(from, to, tAmount);
     }
 
     // -------------------------------------------------------------------------
-    // TAX CALCULATION
+    // REWARD EXCLUSION (FULLY SAFE)
     // -------------------------------------------------------------------------
-    function _getTaxRate(uint256 amount) internal pure returns (uint16) {
-        uint256 maxAmount = 1_000_000 * 1e18;
-        uint256 minBps = 10;
-        uint256 maxBps = 100;
-
-        if (amount >= maxAmount) return uint16(minBps);
-
-        uint256 bps =
-            maxBps -
-            ((amount * (maxBps - minBps)) / maxAmount);
-
-        return uint16(bps < minBps ? minBps : bps);
-    }
-
-    function previewTax(uint256 amount) public view returns (
-        uint16 rateBps,
-        uint256 totalTax,
-        uint256 reflectPart,
-        uint256 sinkPart,
-        uint256 marketPart,
-        uint256 devPart,
-        uint256 lotteryPart,
-        uint256 jackpotPart
-    ) {
-        rateBps  = _getTaxRate(amount);
-        totalTax = (amount * rateBps) / 10_000;
-
-        reflectPart  = (totalTax * reflectionShare) / 100;
-        sinkPart     = (totalTax * sinkShare) / 100;
-        marketPart   = (totalTax * marketingShare) / 100;
-        devPart      = (totalTax * devShare) / 100;
-        lotteryPart  = (totalTax * lotteryShare) / 100;
-        jackpotPart  = (totalTax * jackpotShare) / 100;
-    }
-
-    // -------------------------------------------------------------------------
-    // OWNER CONTROLS
-    // -------------------------------------------------------------------------
-    function setWalletFlags(address account, bool payTax, bool earnRewards) external onlyOwner {
-        isExcludedFromFee[account] = !payTax;
-        emit PayTaxUpdated(account, payTax);
-        _excludeFromReward(account, !earnRewards);
-    }
-
     function _excludeFromReward(address account, bool exclude) private {
+        require(!(permanentlyExcluded[account] && !exclude), "Permanent exclusion");
+
         if (exclude == isExcludedFromRewards[account]) return;
 
         if (exclude) {
@@ -255,6 +276,7 @@ contract Btest is ERC20, ERC20Permit, Ownable {
             _tOwned[account] = 0;
             isExcludedFromRewards[account] = false;
 
+            // ✅ FIX: remove from _excluded[]
             for (uint256 i = 0; i < _excluded.length; i++) {
                 if (_excluded[i] == account) {
                     _excluded[i] = _excluded[_excluded.length - 1];
@@ -280,14 +302,15 @@ contract Btest is ERC20, ERC20Permit, Ownable {
         return rSupply / tSupply;
     }
 
-    function _getCurrentSupply() private view returns (uint256, uint256) {
+    function _getCurrentSupply()
+        private
+        view
+        returns (uint256, uint256)
+    {
         uint256 rSupply = _rTotal;
         uint256 tSupply = _tTotal;
 
         for (uint256 i = 0; i < _excluded.length; i++) {
-            if (_rOwned[_excluded[i]] > rSupply || _tOwned[_excluded[i]] > tSupply) {
-                return (_rTotal, _tTotal);
-            }
             rSupply -= _rOwned[_excluded[i]];
             tSupply -= _tOwned[_excluded[i]];
         }
@@ -299,17 +322,39 @@ contract Btest is ERC20, ERC20Permit, Ownable {
     function _getValues(uint256 tAmount, uint256 tFee)
         private
         view
-        returns (uint256 rAmount, uint256 rTransferAmount, uint256 rFee, uint256 tTransferAmount)
+        returns (
+            uint256 rAmount,
+            uint256 rTransfer,
+            uint256 rFee,
+            uint256 tTransfer
+        )
     {
         uint256 rate = _getRate();
         rAmount = tAmount * rate;
         rFee = tFee * rate;
-        rTransferAmount = rAmount - rFee;
-        tTransferAmount = tAmount - tFee;
+        rTransfer = rAmount - rFee;
+        tTransfer = tAmount - tFee;
     }
 
     // -------------------------------------------------------------------------
-    // VIEW HELPERS
+    // TAX CURVE
+    // -------------------------------------------------------------------------
+    function _getTaxRate(uint256 amount) internal pure returns (uint16) {
+        uint256 maxAmount = 1_000_000 * 1e18;
+        uint256 minBps = 10;
+        uint256 maxBps = 100;
+
+        if (amount >= maxAmount) return uint16(minBps);
+
+        uint256 bps =
+            maxBps -
+            ((amount * (maxBps - minBps)) / maxAmount);
+
+        return uint16(bps < minBps ? minBps : bps);
+    }
+
+    // -------------------------------------------------------------------------
+    // VIEW
     // -------------------------------------------------------------------------
     function circulatingSupply() external view returns (uint256) {
         return _tTotal - _tOwned[sinkWallet];
