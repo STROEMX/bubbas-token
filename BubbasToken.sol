@@ -9,14 +9,14 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 contract Btest is ERC20, ERC20Permit, Ownable {
 
     // -------------------------------------------------------------------------
-    // HARD-CODED SYSTEM WALLETS (ENGINE-CONTROLLED, LOCKED) - TESTING TESTING
+    // HARD-CODED SYSTEM WALLETS (ENGINE-CONTROLLED, LOCKED)
     // -------------------------------------------------------------------------
-    address public constant ENGINE_WALLET    = 0x72D5DFE8827E6f117E31668D8E460F1572Be767e;
-    address public constant MARKETING_WALLET = 0xB36f3aa9875668c44aCb8C6ad50D405679D4736c;
-    address public constant DEV_WALLET       = 0x4c50381460B9530041d783Bc0f36A7cF20b84Ed8;
-    address public constant LOTTERY_WALLET   = 0x042566dDF73101b29749F00d5E71594e1ceB3596;
-    address public constant JACKPOT_WALLET   = 0xaD5E560150bEE0C3E933154c933D315297597704;
-    address public constant SINK_WALLET      = 0xCC314556d404616c66a28F10A85AE8835238FC5E;
+    address public constant ENGINE_WALLET    = 0x48Fe53Ce093950B6c0510186CA3e2BF20F659226;
+    address public constant MARKETING_WALLET = 0xe114aa7982763E8471789EE273316b4609fAb9f8;
+    address public constant DEV_WALLET       = 0xE4d409A5850A914686240165398E0C051A53347F;
+    address public constant LOTTERY_WALLET   = 0x990DC6B4331f1158Acef1408BEe8a521Bde69Cae;
+    address public constant JACKPOT_WALLET   = 0x5E621aDBF14dDF216770535aa980d22a202FBcBE;
+    address public constant SINK_WALLET      = 0xF5F140fC4B10abe1a58598Ee3544e181107DA638;
 
     address public constant engine = ENGINE_WALLET;
 
