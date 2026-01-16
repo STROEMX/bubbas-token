@@ -9,7 +9,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 contract Btest is ERC20, ERC20Permit, Ownable {
 
     // -------------------------------------------------------------------------
-    // HARD-CODED SYSTEM WALLETS (IMMUTABLE)
+    // HARD-CODED SYSTEM WALLETS (ENGINE-CONTROLLED, LOCKED)
     // -------------------------------------------------------------------------
     address public constant ENGINE_WALLET    = 0x72D5DFE8827E6f117E31668D8E460F1572Be767e;
     address public constant MARKETING_WALLET = 0xe114aa7982763E8471789EE273316b4609fAb9f8;
@@ -20,6 +20,22 @@ contract Btest is ERC20, ERC20Permit, Ownable {
 
     address public constant engine = ENGINE_WALLET;
 
+    // -------------------------------------------------------------------------
+    // NON-CIRCULATING (CUSTODY + RESERVE) WALLETS
+    // -------------------------------------------------------------------------
+    address public constant CUSTODY_WALLET        = 0x48Fe53Ce093950B6c0510186CA3e2BF20F659226;
+
+    address public constant RESERVE_LIQUIDITY     = 0x1eF243a43D4Bb7d6aa2F738BEc3d4AD297ba6a08;
+    address public constant RESERVE_VESTING       = 0xaB3D656D2cd46310E082E7ce36A0CD23Ce470486;
+    address public constant RESERVE_MINING        = 0x582738f6f6e7E882fffCb53eDA7f0491F44db449;
+    address public constant RESERVE_MARKETING     = 0x5eFE8f36Cd4E4dbBa7f2585170BB0603608Fe595;
+    address public constant RESERVE_DEVELOPMENT   = 0x2CfE7065289C2543663ffcd62AaCf566E5D0100d;
+    address public constant RESERVE_BONUS         = 0xfC6da39a46f2E45cb63528e46e5eb4Bd4405f031;
+    address public constant RESERVE_DAO           = 0x9F5196b3d771a86A83F7A27230DB22DA914a742a;
+
+    // -------------------------------------------------------------------------
+    // MODIFIERS
+    // -------------------------------------------------------------------------
     modifier onlyEngine() {
         require(msg.sender == engine, "Not engine");
         _;
@@ -69,38 +85,50 @@ contract Btest is ERC20, ERC20Permit, Ownable {
         ERC20Permit("Btest")
         Ownable(initialOwner)
     {
-        // register system wallets
-        isSystemWallet[ENGINE_WALLET]    = true;
-        isSystemWallet[MARKETING_WALLET] = true;
-        isSystemWallet[DEV_WALLET]       = true;
-        isSystemWallet[LOTTERY_WALLET]   = true;
-        isSystemWallet[JACKPOT_WALLET]   = true;
-        isSystemWallet[SINK_WALLET]      = true;
+        // ---------------------------------------------------------------------
+        // REGISTER SYSTEM (ENGINE-CONTROLLED) WALLETS
+        // ---------------------------------------------------------------------
+        address[6] memory systemWallets = [
+            ENGINE_WALLET,
+            MARKETING_WALLET,
+            DEV_WALLET,
+            LOTTERY_WALLET,
+            JACKPOT_WALLET,
+            SINK_WALLET
+        ];
 
-        // exclude system wallets from reflections
-        isExcludedFromRewards[ENGINE_WALLET]    = true;
-        isExcludedFromRewards[MARKETING_WALLET] = true;
-        isExcludedFromRewards[DEV_WALLET]       = true;
-        isExcludedFromRewards[LOTTERY_WALLET]   = true;
-        isExcludedFromRewards[JACKPOT_WALLET]   = true;
-        isExcludedFromRewards[SINK_WALLET]      = true;
+        for (uint256 i = 0; i < systemWallets.length; i++) {
+            address w = systemWallets[i];
+            isSystemWallet[w] = true;
+            isExcludedFromFee[w] = true;
+            isExcludedFromRewards[w] = true;
+            _excluded.push(w);
+        }
 
-        // ✅ exclude system wallets from fees (FIX)
-        isExcludedFromFee[ENGINE_WALLET]    = true;
-        isExcludedFromFee[MARKETING_WALLET] = true;
-        isExcludedFromFee[DEV_WALLET]       = true;
-        isExcludedFromFee[LOTTERY_WALLET]   = true;
-        isExcludedFromFee[JACKPOT_WALLET]   = true;
-        isExcludedFromFee[SINK_WALLET]      = true;
+        // ---------------------------------------------------------------------
+        // EXCLUDE CUSTODY + RESERVE WALLETS (NON-CIRCULATING)
+        // ---------------------------------------------------------------------
+        address[8] memory excludedWallets = [
+            CUSTODY_WALLET,
+            RESERVE_LIQUIDITY,
+            RESERVE_VESTING,
+            RESERVE_MINING,
+            RESERVE_MARKETING,
+            RESERVE_DEVELOPMENT,
+            RESERVE_BONUS,
+            RESERVE_DAO
+        ];
 
-        _excluded.push(ENGINE_WALLET);
-        _excluded.push(MARKETING_WALLET);
-        _excluded.push(DEV_WALLET);
-        _excluded.push(LOTTERY_WALLET);
-        _excluded.push(JACKPOT_WALLET);
-        _excluded.push(SINK_WALLET);
+        for (uint256 i = 0; i < excludedWallets.length; i++) {
+            address w = excludedWallets[i];
+            isExcludedFromFee[w] = true;
+            isExcludedFromRewards[w] = true;
+            _excluded.push(w);
+        }
 
-        // RFI-authoritative mint
+        // ---------------------------------------------------------------------
+        // RFI-AUTHORITATIVE MINT
+        // ---------------------------------------------------------------------
         _mint(initialOwner, _tTotal);
         _rOwned[initialOwner] = _rTotal;
     }
