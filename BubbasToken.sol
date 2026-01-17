@@ -1,6 +1,21 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.27;
 
+/*
+    -------------------------------------------------------------------------
+    GAMEFI DESIGN NOTE
+
+    This is a GameFi settlement token.
+
+    - Game logic and payouts happen off-chain.
+    - On-chain logic only enforces fees, sinks, and settlement constraints.
+    - This token is NOT a DeFi yield or pure RFI instrument.
+    - Reflections are a mechanical fee-distribution effect, not a
+      financial return guarantee.
+
+    -------------------------------------------------------------------------
+*/
+
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
@@ -23,8 +38,16 @@ contract Btest is ERC20, ERC20Permit, Ownable {
     address public engine;
     address public pendingEngine;
 
+    uint256 public maxPayoutPerTx = 1_000_000 * 1e18;
+    bool public enginePaused;
+
     modifier onlyEngine() {
         require(msg.sender == engine, "Not engine");
+        _;
+    }
+
+    modifier engineActive() {
+        require(!enginePaused, "Engine paused");
         _;
     }
 
@@ -99,12 +122,21 @@ contract Btest is ERC20, ERC20Permit, Ownable {
             _excluded.push(sys[i]);
         }
 
-        // Alias init (NOT used in logic)
         systemAlias["MARKETING"] = MARKETING_WALLET;
         systemAlias["DEV"]       = DEV_WALLET;
         systemAlias["LOTTERY"]   = LOTTERY_WALLET;
         systemAlias["JACKPOT"]   = JACKPOT_WALLET;
         systemAlias["SINK"]      = SINK_WALLET;
+
+        require(
+            reflectionShare +
+            sinkShare +
+            marketingShare +
+            devShare +
+            lotteryShare +
+            jackpotShare == 100,
+            "Invalid tax split"
+        );
 
         _rOwned[initialOwner] = _rTotal;
         emit Transfer(address(0), initialOwner, _tTotal);
@@ -141,7 +173,9 @@ contract Btest is ERC20, ERC20Permit, Ownable {
     function systemPayout(address from, address to, uint256 amount)
         external
         onlyEngine
+        engineActive
     {
+        require(amount <= maxPayoutPerTx, "Payout too large");
         require(isSystemWallet[from], "Not system");
         require(!isSystemWallet[to], "No system-to-system");
 
@@ -173,54 +207,20 @@ contract Btest is ERC20, ERC20Permit, Ownable {
         pendingEngine = address(0);
     }
 
-    // -------------------------------------------------------------------------
-    // FEE TOGGLE (SOFT EMERGENCY)
-    // -------------------------------------------------------------------------
+    function setMaxPayoutPerTx(uint256 amount) external onlyOwner {
+        maxPayoutPerTx = amount;
+    }
+
+    function setEnginePaused(bool paused) external onlyOwner {
+        enginePaused = paused;
+    }
+
     function setFeesEnabled(bool enabled) external onlyOwner {
         feesEnabled = enabled;
     }
 
     // -------------------------------------------------------------------------
-    // LP EXCLUSION (LEGACY)
-    // -------------------------------------------------------------------------
-    function excludeLPFromRewards(address lp) external onlyOwner {
-        require(lp != address(0), "Zero address");
-        require(!isLP[lp], "Already LP");
-
-        isLP[lp] = true;
-        isExcludedFromRewards[lp] = true;
-        isExcludedFromFee[lp] = true;
-
-        _tOwned[lp] = _rOwned[lp] / _getRate();
-        _rOwned[lp] = 0;
-
-        _excluded.push(lp);
-        emit Transfer(lp, lp, 0);
-    }
-
-    // -------------------------------------------------------------------------
-    // LP EXCLUSION (TAGGED, FUTURE)
-    // -------------------------------------------------------------------------
-    function excludeLPFromRewardsWithTag(address lp, bytes32 /* tag */)
-        external
-        onlyOwner
-    {
-        require(lp != address(0), "Zero address");
-        require(!isLP[lp], "Already LP");
-
-        isLP[lp] = true;
-        isExcludedFromRewards[lp] = true;
-        isExcludedFromFee[lp] = true;
-
-        _tOwned[lp] = _rOwned[lp] / _getRate();
-        _rOwned[lp] = 0;
-
-        _excluded.push(lp);
-        emit Transfer(lp, lp, 0);
-    }
-
-    // -------------------------------------------------------------------------
-    // TRANSFER CORE (UNCHANGED)
+    // TRANSFER CORE
     // -------------------------------------------------------------------------
     function _tokenTransfer(
         address from,
@@ -228,7 +228,6 @@ contract Btest is ERC20, ERC20Permit, Ownable {
         uint256 tAmount,
         bool takeFee
     ) private {
-
         uint16 bps = takeFee ? _getTaxRate(tAmount) : 0;
         uint256 tTax = (tAmount * bps) / 10_000;
         uint256 tTransfer = tAmount - tTax;
@@ -261,16 +260,13 @@ contract Btest is ERC20, ERC20Permit, Ownable {
     }
 
     // -------------------------------------------------------------------------
-    // SYSTEM FEE (UNCHANGED)
+    // SYSTEM FEE (FIXED – NO DOUBLE DEBIT)
     // -------------------------------------------------------------------------
     function _takeSystemFee(address from, address to, uint256 tAmount) private {
         if (tAmount == 0) return;
 
         uint256 rate = _getRate();
         uint256 rAmount = tAmount * rate;
-
-        _rOwned[from] -= rAmount;
-        if (isExcludedFromRewards[from]) _tOwned[from] -= tAmount;
 
         _rOwned[to] += rAmount;
         if (isExcludedFromRewards[to]) _tOwned[to] += tAmount;
@@ -279,14 +275,14 @@ contract Btest is ERC20, ERC20Permit, Ownable {
     }
 
     // -------------------------------------------------------------------------
-    // RATE (STABLE)
+    // RATE
     // -------------------------------------------------------------------------
     function _getRate() private view returns (uint256) {
         return _rTotal / _tTotal;
     }
 
     // -------------------------------------------------------------------------
-    // LINEAR TAX CURVE (UNCHANGED)
+    // LINEAR TAX CURVE
     // -------------------------------------------------------------------------
     function _getTaxRate(uint256 amount) internal pure returns (uint16) {
         uint256 maxAmount = 1_000_000 * 1e18;
