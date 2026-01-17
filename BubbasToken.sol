@@ -32,6 +32,20 @@ contract Btest is ERC20, ERC20Permit, Ownable {
     address public constant JACKPOT_WALLET   = 0x5E621aDBF14dDF216770535aa980d22a202FBcBE;
     address public constant SINK_WALLET      = 0xF5F140fC4B10abe1a58598Ee3544e181107DA638;
 
+    // OPS / BACKEND / FEE PAYER (HOT WALLET)
+    address public constant OPS_WALLET       = 0xXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX;
+
+    // -------------------------------------------------------------------------
+    // COLD / RESERVE WALLETS (NEVER PARTICIPATE)
+    // -------------------------------------------------------------------------
+    address public constant RESERVE_LIQUIDITY    = 0x1eF243a43D4Bb7d6aa2F738BEc3d4AD297ba6a08;
+    address public constant RESERVE_VESTING      = 0xaB3D656D2cd46310E082E7ce36A0CD23Ce470486;
+    address public constant RESERVE_MINING       = 0x582738f6f6e7E882fffCb53eDA7f0491F44db449;
+    address public constant RESERVE_MARKETING    = 0x5eFE8f36Cd4E4dbBa7f2585170BB0603608Fe595;
+    address public constant RESERVE_DEVELOPMENT  = 0x2CfE7065289C2543663ffcd62AaCf566E5D0100d;
+    address public constant RESERVE_BONUS        = 0xfC6da39a46f2E45cb63528e46e5eb4Bd4405f031;
+    address public constant RESERVE_DAO          = 0x9F5196b3d771a86A83F7A27230DB22DA914a742a;
+
     // -------------------------------------------------------------------------
     // ENGINE (2-STEP ROTATION)
     // -------------------------------------------------------------------------
@@ -106,13 +120,14 @@ contract Btest is ERC20, ERC20Permit, Ownable {
     {
         engine = ENGINE_WALLET;
 
-        address[6] memory sys = [
+        address[7] memory sys = [
             ENGINE_WALLET,
             MARKETING_WALLET,
             DEV_WALLET,
             LOTTERY_WALLET,
             JACKPOT_WALLET,
-            SINK_WALLET
+            SINK_WALLET,
+            OPS_WALLET
         ];
 
         for (uint256 i; i < sys.length; i++) {
@@ -120,6 +135,22 @@ contract Btest is ERC20, ERC20Permit, Ownable {
             isExcludedFromFee[sys[i]] = true;
             isExcludedFromRewards[sys[i]] = true;
             _excluded.push(sys[i]);
+        }
+
+        address[7] memory cold = [
+            RESERVE_LIQUIDITY,
+            RESERVE_VESTING,
+            RESERVE_MINING,
+            RESERVE_MARKETING,
+            RESERVE_DEVELOPMENT,
+            RESERVE_BONUS,
+            RESERVE_DAO
+        ];
+
+        for (uint256 i; i < cold.length; i++) {
+            isExcludedFromFee[cold[i]] = true;
+            isExcludedFromRewards[cold[i]] = true;
+            _excluded.push(cold[i]);
         }
 
         systemAlias["MARKETING"] = MARKETING_WALLET;
