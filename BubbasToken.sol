@@ -100,8 +100,8 @@ contract Btest is ERC20, ERC20Permit, Ownable {
     // CONSTRUCTOR
     // -------------------------------------------------------------------------
     constructor(address initialOwner)
-        ERC20("BtestV3", "BTESTV3")
-        ERC20Permit("BtestV3")
+        ERC20("BUBBAS", "BUBBAS")
+        ERC20Permit("BUBBAS")
         Ownable(initialOwner)
     {
         engine = ENGINE_WALLET;
