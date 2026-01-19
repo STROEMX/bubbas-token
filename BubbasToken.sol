@@ -13,6 +13,11 @@ pragma solidity ^0.8.27;
     - Reflections are a mechanical fee-distribution effect, not a
       financial return guarantee.
 
+    NOTE:
+    Cold / reserve wallets are excluded from fees and reflections by design.
+    They must NEVER receive tokens before deploy.
+    All balances are transferred post-deploy only.
+
     -------------------------------------------------------------------------
 */
 
@@ -33,7 +38,7 @@ contract Btest is ERC20, ERC20Permit, Ownable {
     address public constant SINK_WALLET      = 0xF5F140fC4B10abe1a58598Ee3544e181107DA638;
 
     // OPS / BACKEND / FEE PAYER (HOT WALLET)
-    address public constant OPS_WALLET       = 0xXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX;
+    address public constant OPS_WALLET = 0xXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX;            TODO
 
     // -------------------------------------------------------------------------
     // COLD / RESERVE WALLETS (NEVER PARTICIPATE)
@@ -99,7 +104,7 @@ contract Btest is ERC20, ERC20Permit, Ownable {
     uint16 public constant jackpotShare    = 12;
 
     // -------------------------------------------------------------------------
-    // SYSTEM ALIAS (FUTURE-PROOF ONLY)
+    // SYSTEM ALIAS
     // -------------------------------------------------------------------------
     mapping(bytes32 => address) public systemAlias;
 
@@ -114,20 +119,22 @@ contract Btest is ERC20, ERC20Permit, Ownable {
     // CONSTRUCTOR
     // -------------------------------------------------------------------------
     constructor(address initialOwner)
-        ERC20("BUBBAS", "BUBBAS")
-        ERC20Permit("BUBBAS")
+        ERC20("BtestV3", "BTESTV3")
+        ERC20Permit("BtestV3")
         Ownable(initialOwner)
     {
         engine = ENGINE_WALLET;
 
-        address[7] memory sys = [
+        _rOwned[initialOwner] = _rTotal;
+        emit Transfer(address(0), initialOwner, _tTotal);
+
+        address[6] memory sys = [
             ENGINE_WALLET,
             MARKETING_WALLET,
             DEV_WALLET,
             LOTTERY_WALLET,
             JACKPOT_WALLET,
-            SINK_WALLET,
-            OPS_WALLET
+            SINK_WALLET
         ];
 
         for (uint256 i; i < sys.length; i++) {
@@ -135,6 +142,10 @@ contract Btest is ERC20, ERC20Permit, Ownable {
             isExcludedFromFee[sys[i]] = true;
             isExcludedFromRewards[sys[i]] = true;
             _excluded.push(sys[i]);
+
+            if (sys[i] == initialOwner) {
+                _tOwned[sys[i]] = _tTotal;
+            }
         }
 
         address[7] memory cold = [
@@ -153,6 +164,14 @@ contract Btest is ERC20, ERC20Permit, Ownable {
             _excluded.push(cold[i]);
         }
 
+        isExcludedFromFee[OPS_WALLET] = true;
+        isExcludedFromRewards[OPS_WALLET] = true;
+        _excluded.push(OPS_WALLET);
+
+        if (isExcludedFromRewards[initialOwner]) {
+            require(_tOwned[initialOwner] == _tTotal, "Excluded owner must have tOwned initialized");
+        }
+
         systemAlias["MARKETING"] = MARKETING_WALLET;
         systemAlias["DEV"]       = DEV_WALLET;
         systemAlias["LOTTERY"]   = LOTTERY_WALLET;
@@ -168,9 +187,6 @@ contract Btest is ERC20, ERC20Permit, Ownable {
             jackpotShare == 100,
             "Invalid tax split"
         );
-
-        _rOwned[initialOwner] = _rTotal;
-        emit Transfer(address(0), initialOwner, _tTotal);
     }
 
     // -------------------------------------------------------------------------
@@ -199,7 +215,7 @@ contract Btest is ERC20, ERC20Permit, Ownable {
     }
 
     // -------------------------------------------------------------------------
-    // ENGINE PAYOUT (EXPLICIT ONLY)
+    // ENGINE PAYOUT (FIXED)
     // -------------------------------------------------------------------------
     function systemPayout(address from, address to, uint256 amount)
         external
@@ -213,6 +229,14 @@ contract Btest is ERC20, ERC20Permit, Ownable {
         uint256 rate = _getRate();
         uint256 rAmt = amount * rate;
 
+        // 🔧 RFI SUPPLY SYNC FIX
+        if (isExcludedFromRewards[from] && !isExcludedFromRewards[to]) {
+            _rTotal -= rAmt;
+        }
+        if (!isExcludedFromRewards[from] && isExcludedFromRewards[to]) {
+            _rTotal += rAmt;
+        }
+
         _rOwned[from] -= rAmt;
         if (isExcludedFromRewards[from]) _tOwned[from] -= amount;
 
@@ -223,7 +247,7 @@ contract Btest is ERC20, ERC20Permit, Ownable {
     }
 
     // -------------------------------------------------------------------------
-    // ENGINE ROTATION (SAFE)
+    // ENGINE ROTATION
     // -------------------------------------------------------------------------
     function proposeEngine(address newEngine) external onlyOwner {
         require(newEngine != address(0), "Zero address");
@@ -291,8 +315,15 @@ contract Btest is ERC20, ERC20Permit, Ownable {
     }
 
     // -------------------------------------------------------------------------
-    // SYSTEM FEE (FIXED – NO DOUBLE DEBIT)
+    // SYSTEM FEE
     // -------------------------------------------------------------------------
+    // NOTE:
+    // This function does NOT subtract tokens from `from`.
+    // The full rAmount (tAmount * rate) has already been deducted
+    // from `from` in _tokenTransfer().
+    //
+    // This function only reallocates the tax portion to system wallets
+    // and does NOT mint new tokens.
     function _takeSystemFee(address from, address to, uint256 tAmount) private {
         if (tAmount == 0) return;
 
