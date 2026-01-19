@@ -38,7 +38,7 @@ contract Btest is ERC20, ERC20Permit, Ownable {
     address public constant SINK_WALLET      = 0xF5F140fC4B10abe1a58598Ee3544e181107DA638;
 
     // OPS / BACKEND / FEE PAYER (HOT WALLET)
-    address public constant OPS_WALLET = 0xXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX;            TODO
+    address public constant OPS_WALLET = 0xXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX;
 
     // -------------------------------------------------------------------------
     // COLD / RESERVE WALLETS (NEVER PARTICIPATE)
