@@ -25,7 +25,7 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
-contract Btest is ERC20, ERC20Permit, Ownable {
+contract BUBBAS is ERC20, ERC20Permit, Ownable {
 
     // -------------------------------------------------------------------------
     // SYSTEM WALLETS (LOCKED)
@@ -131,8 +131,8 @@ contract Btest is ERC20, ERC20Permit, Ownable {
     // CONSTRUCTOR
     // -------------------------------------------------------------------------
     constructor(address initialOwner, address opsWallet)
-        ERC20("BtestV5", "BTESTV5")
-        ERC20Permit("BtestV5")
+        ERC20("BUBBAS", "BUBBAS")
+        ERC20Permit("BUBBAS")
         Ownable(initialOwner)
     {
         engine = ENGINE_WALLET;
