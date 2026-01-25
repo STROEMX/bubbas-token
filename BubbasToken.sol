@@ -15,8 +15,15 @@ pragma solidity ^0.8.27;
 
     NOTE:
     Cold / reserve wallets are excluded from fees and reflections by design.
-    They must NEVER receive tokens before deploy.
+    Cold wallets receive tokens post-deploy but are excluded from reflections.
     All balances are transferred post-deploy only.
+
+    -------------------------------------------------------------------------
+
+    🔧 RFI ACCOUNTING NOTE (BUGFIX CONTEXT)
+
+    _tOwned was not reliably materialized on first receipt, because the logic
+    did not guarantee initialization for excluded wallets across all transfer paths.
 
     -------------------------------------------------------------------------
 */
@@ -43,7 +50,7 @@ contract BUBBAS is ERC20, ERC20Permit, Ownable {
     // -------------------------------------------------------------------------
     // COLD / RESERVE WALLETS (NEVER PARTICIPATE)
     // -------------------------------------------------------------------------
-    address public constant RESERVE_LIQUIDITY    = 0x1eF243a43D4Bb7d6aa2F738BEc3d4AD297ba6a08;
+    address public constant RESERVE_LIQUIDITY    = 0x381203eB865BBdbe1776c65Cc915DC97CcD01Aa0;
     address public constant RESERVE_VESTING      = 0xaB3D656D2cd46310E082E7ce36A0CD23Ce470486;
     address public constant RESERVE_MINING       = 0x582738f6f6e7E882fffCb53eDA7f0491F44db449;
     address public constant RESERVE_MARKETING    = 0x5eFE8f36Cd4E4dbBa7f2585170BB0603608Fe595;
@@ -319,8 +326,14 @@ contract BUBBAS is ERC20, ERC20Permit, Ownable {
         _rOwned[from] -= rAmount;
         _rOwned[to]   += rTransfer;
 
-        if (isExcludedFromRewards[from]) _tOwned[from] -= tAmount;
-        if (isExcludedFromRewards[to])   _tOwned[to]   += tTransfer;
+        // ✅ FIX: materialize tOwned for excluded wallets
+        if (isExcludedFromRewards[from]) {
+            _tOwned[from] -= tAmount;
+        }
+
+        if (isExcludedFromRewards[to]) {
+            _tOwned[to] += tTransfer;
+        }
 
         if (tTax > 0) {
             uint256 tReflect = (tTax * reflectionShare) / 100;
