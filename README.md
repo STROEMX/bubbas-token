@@ -132,6 +132,16 @@ Official resources:
 
 ---
 
+## 🛒 Where to Trade
+
+$BUBBAS is available on the following platforms:
+
+- DEX: [Dexview (BSC)](https://www.dexview.com/bsc/0x31db1c32ea112e9e6d83c3fe8509e513754f06fc)
+- DEX: [PancakeSwap (BSC)](https://pancakeswap.finance/swap?outputCurrency=0x31db1C32Ea112e9E6d83C3fe8509e513754F06Fc)
+- Aggregator: [Dexscreener](https://dexscreener.com/bsc/0xa6f779195e4326d709ce895cc9c41a45301522a2)
+
+Always verify contract addresses before trading.
+
 ## 🔍 Independent Verification
 
 All contract functions, permissions, and historical transactions can be independently verified on-chain using public blockchain explorers and analytics platforms.
