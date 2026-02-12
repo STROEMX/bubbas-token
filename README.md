@@ -1,40 +1,43 @@
-BUBBAS Token ($BUBBAS)
+# BUBBAS Token ($BUBBAS)
 
 This repository contains the canonical ERC20 token contract for Bubbas ($BUBBAS), designed as a long-term GameFi settlement and enforcement layer.
 
 The Bubbas ecosystem has been in continuous public operation since 2023, with the current token contract deployed in 2026 as its next-generation settlement and distribution layer.
 
-📌 Core Principles
+---
 
-Fixed Supply
+## 📌 Core Principles
+
+### Fixed Supply
 Total supply is permanently capped at 1,000,000,000 tokens. No minting functions exist.
 
-Non-Custodial Design
+### Non-Custodial Design
 Users always retain full control of their funds. No function allows confiscation, freezing, or forced removal of user balances.
 
-Open Source & Auditable
+### Open Source & Auditable
 The full contract source is published and verifiable on-chain.
 
-No Hidden Backdoors
+### No Hidden Backdoors
 The contract contains no functions for emergency drains, liquidity removal, or arbitrary token creation.
 
-⚙️ Protocol Engine
+---
+
+## ⚙️ Protocol Engine
 
 BUBBAS integrates with a dedicated protocol engine that performs deterministic settlement and reward distribution.
 
 The engine:
 
-Cannot mint tokens
-
-Cannot access liquidity pools
-
-Cannot withdraw user funds
-
-Can only execute bounded system payouts under predefined limits
+- Cannot mint tokens  
+- Cannot access liquidity pools  
+- Cannot withdraw user funds  
+- Can only execute bounded system payouts under predefined limits  
 
 All engine actions are transparent and visible on-chain.
 
-💰 Transaction Fees & Distribution
+---
+
+## 💰 Transaction Fees & Distribution
 
 External transfers may incur a dynamic transaction fee based on transaction size.
 
@@ -51,31 +54,31 @@ Collected fees are distributed as follows:
 
 Internal platform operations are excluded from fees.
 
-🔐 Administrative Controls
+---
+
+## 🔐 Administrative Controls
 
 The contract includes limited administrative controls required for protocol operation:
 
-Engine rotation (two-step process)
-
-Emergency engine pause
-
-LP registration
-
-Fee enable/disable
+- Engine rotation (two-step process)  
+- Emergency engine pause  
+- LP registration  
+- Fee enable/disable  
 
 These controls:
 
-Do not allow minting
+- Do not allow minting  
+- Do not allow balance confiscation  
+- Do not allow trading restrictions  
+- Do not allow user blacklisting  
 
-Do not allow balance confiscation
+All administrative actions are publicly visible.
 
-Do not allow trading restrictions
+No administrative function allows unilateral fund extraction or supply modification.
 
-Do not allow user blacklisting
+---
 
-All administrative actions are publicly visible. No administrative function allows unilateral fund extraction or supply modification.
-
-🛡️ Security & Risk Disclosure
+## 🛡️ Security & Risk Disclosure
 
 Automated security scanners may flag this contract due to its controlled settlement architecture.
 
@@ -83,57 +86,55 @@ These flags reflect administrative capabilities required for protocol operation 
 
 Key facts:
 
-Ownership has never been abused
-
-No unauthorized fund movements
-
-No hidden mint functions
-
-No honeypot logic
+- Ownership has never been abused  
+- No unauthorized fund movements  
+- No hidden mint functions  
+- No honeypot logic  
 
 Users are encouraged to review the contract source and transaction history.
 
-📜 History & Transparency
+---
 
-Bubbas (token contract)
+## 📜 History & Transparency
 
-Deployed: 2026
+### Bubbas (Token Contract)
 
-Fixed supply since deployment
+- Deployed: 2026  
+- Fixed supply since deployment  
+- No mint function  
+- Open-source and verifiable  
 
-No mint function
+### Project Legacy (Paco dApp)
 
-Open-source and verifiable
-
-Project Legacy (Paco dApp)
-
-Originally launched: 2022
-
-3+ years of ecosystem development
-
-No major security incidents
-
-Continuous platform operation
+- Originally launched: 2022  
+- 3+ years of ecosystem development  
+- No major security incidents  
+- Continuous platform operation  
 
 Bubbas represents the next-generation settlement layer built on the experience and operational history of Paco.
 
-⚠️ Disclaimer
+---
+
+## ⚠️ Disclaimer
 
 $BUBBAS is a utility token used within the Bubbas GameFi ecosystem. It is not an investment contract, yield product, or profit-sharing instrument.
 
 Participation involves market risk. Users should conduct independent research.
 
-📬 Contact & Verification
+---
+
+## 📬 Contact & Verification
 
 Official resources:
 
-Website: https://bubbas.fun
+- Website: https://bubbas.fun  
+- Telegram: https://t.me/Bubbaschat  
 
-Telegram: https://t.me/Bubbaschat
+---
 
-🔍 Independent Verification
+## 🔍 Independent Verification
 
 All contract functions, permissions, and historical transactions can be independently verified on-chain using public blockchain explorers and analytics platforms.
 
-Detailed technical documentation is available at:
+Detailed technical documentation is available at:  
 https://bubbas-fun.gitbook.io/bubbas-docs/advanced-tokenomics-and-transparency
