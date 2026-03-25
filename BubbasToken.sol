@@ -45,7 +45,8 @@ contract BUBBAS is ERC20, ERC20Permit, Ownable {
     address public constant SINK_WALLET      = 0xF5F140fC4B10abe1a58598Ee3544e181107DA638;
 
     // OPS / BACKEND / FEE PAYER (HOT WALLET)
-    address public immutable OPS_WALLET;
+    address public opsWallet;
+    address public pendingOpsWallet;
 
     // -------------------------------------------------------------------------
     // COLD / RESERVE WALLETS (NEVER PARTICIPATE)
@@ -65,6 +66,9 @@ contract BUBBAS is ERC20, ERC20Permit, Ownable {
     address public pendingEngine;
 
     uint256 public maxPayoutPerTx = 1_000_000 * 1e18;
+    uint256 public dailyPayoutLimit;
+    uint256 public dailyPayoutUsed;
+    uint256 public lastPayoutDay;
     bool public enginePaused;
 
     modifier onlyEngine() {
@@ -74,6 +78,11 @@ contract BUBBAS is ERC20, ERC20Permit, Ownable {
 
     modifier engineActive() {
         require(!enginePaused, "Engine paused");
+        _;
+    }
+
+    modifier payoutsActive() {
+        require(!payoutsPaused, "Payouts paused");
         _;
     }
 
@@ -111,6 +120,8 @@ contract BUBBAS is ERC20, ERC20Permit, Ownable {
     mapping(address => bool) public isLP;
 
     bool public feesEnabled = true;
+    bool public emergencyMode;
+    bool public payoutsPaused;
 
     // -------------------------------------------------------------------------
     // TAX SPLIT (SUM = 100)
@@ -123,29 +134,34 @@ contract BUBBAS is ERC20, ERC20Permit, Ownable {
     uint16 public constant jackpotShare    = 12;
 
     // -------------------------------------------------------------------------
-    // SYSTEM ALIAS
-    // -------------------------------------------------------------------------
-    mapping(bytes32 => address) public systemAlias;
-
-    // -------------------------------------------------------------------------
     // EVENTS
     // -------------------------------------------------------------------------
     event TaxApplied(address indexed from, uint256 amount, uint16 bps);
     event EngineUpdated(address indexed oldEngine, address indexed newEngine);
     event EngineProposed(address indexed oldEngine, address indexed newEngine);
+    event OpsWalletProposed(address indexed oldWallet, address indexed newWallet);
+    event OpsWalletUpdated(address indexed oldWallet, address indexed newWallet);
+    event EmergencyModeSet(bool enabled);
+    event EnginePaused(bool paused);
+    event MaxPayoutUpdated(uint256 amount);
+    event FeesEnabledSet(bool enabled);
+    event DailyPayoutLimitUpdated(uint256 amount);
+    event PayoutsPaused(bool paused);
+    event LPSet(address indexed lp);
+    event LPUnset(address indexed lp);
 
     // -------------------------------------------------------------------------
     // CONSTRUCTOR
     // -------------------------------------------------------------------------
-    constructor(address initialOwner, address opsWallet)
+    constructor(address initialOwner, address _opsWallet)
         ERC20("BUBBAS", "BUBBAS")
         ERC20Permit("BUBBAS")
         Ownable(initialOwner)
     {
         engine = ENGINE_WALLET;
 
-        require(opsWallet != address(0), "OPS wallet cannot be zero");
-        OPS_WALLET = opsWallet;
+        require(_opsWallet != address(0), "OPS wallet cannot be zero");
+        opsWallet = _opsWallet;
 
         _rOwned[initialOwner] = _rTotal;
         emit Transfer(address(0), initialOwner, _tTotal);
@@ -186,19 +202,13 @@ contract BUBBAS is ERC20, ERC20Permit, Ownable {
             _excluded.push(cold[i]);
         }
 
-        isExcludedFromFee[OPS_WALLET] = true;
-        isExcludedFromRewards[OPS_WALLET] = true;
-        _excluded.push(OPS_WALLET);
+        isExcludedFromFee[opsWallet] = true;
+        isExcludedFromRewards[opsWallet] = true;
+        _excluded.push(opsWallet);
 
         if (isExcludedFromRewards[initialOwner]) {
             require(_tOwned[initialOwner] == _tTotal, "Excluded owner must have tOwned initialized");
         }
-
-        systemAlias["MARKETING"] = MARKETING_WALLET;
-        systemAlias["DEV"]       = DEV_WALLET;
-        systemAlias["LOTTERY"]   = LOTTERY_WALLET;
-        systemAlias["JACKPOT"]   = JACKPOT_WALLET;
-        systemAlias["SINK"]      = SINK_WALLET;
 
         require(
             reflectionShare +
@@ -229,14 +239,79 @@ contract BUBBAS is ERC20, ERC20Permit, Ownable {
 
     function setMaxPayoutPerTx(uint256 amount) external onlyOwner {
         maxPayoutPerTx = amount;
+        emit MaxPayoutUpdated(amount);
     }
 
     function setEnginePaused(bool paused) external onlyOwner {
         enginePaused = paused;
+        emit EnginePaused(paused);
     }
 
     function setFeesEnabled(bool enabled) external onlyOwner {
         feesEnabled = enabled;
+        emit FeesEnabledSet(enabled);
+    }
+
+    function setEmergencyMode(bool enabled) external onlyOwner {
+        emergencyMode = enabled;
+        emit EmergencyModeSet(enabled);
+    }
+
+    function setDailyPayoutLimit(uint256 amount) external onlyOwner {
+        dailyPayoutLimit = amount;
+        emit DailyPayoutLimitUpdated(amount);
+    }
+
+    function setPayoutsPaused(bool paused) external onlyOwner {
+        payoutsPaused = paused;
+        emit PayoutsPaused(paused);
+    }
+
+    // -------------------------------------------------------------------------
+    // OPS WALLET ROTATION (2-STEP)
+    // -------------------------------------------------------------------------
+    function proposeOpsWallet(address newWallet) external onlyOwner {
+        require(newWallet != address(0), "Zero address");
+        require(newWallet != opsWallet, "Already ops wallet");
+        pendingOpsWallet = newWallet;
+        emit OpsWalletProposed(opsWallet, newWallet);
+    }
+
+    function acceptOpsWallet() external {
+        require(msg.sender == pendingOpsWallet, "Not pending wallet");
+
+        address oldWallet = opsWallet;
+        address newWallet = pendingOpsWallet;
+
+        uint256 rate = _getRate();
+
+        // remove old exclusions
+        isExcludedFromFee[oldWallet] = false;
+        isExcludedFromRewards[oldWallet] = false;
+
+        // remove old wallet from _excluded array
+        for (uint256 i = 0; i < _excluded.length; i++) {
+            if (_excluded[i] == oldWallet) {
+                _excluded[i] = _excluded[_excluded.length - 1];
+                _excluded.pop();
+                break;
+            }
+        }
+
+        // set new wallet
+        opsWallet = newWallet;
+        pendingOpsWallet = address(0);
+
+        // apply exclusions
+        isExcludedFromFee[newWallet] = true;
+        isExcludedFromRewards[newWallet] = true;
+
+        // initialize tOwned if excluded
+        if (_rOwned[newWallet] > 0) {
+            _tOwned[newWallet] = _rOwned[newWallet] / rate;
+        }
+
+        emit OpsWalletUpdated(oldWallet, newWallet);
     }
 
     // -------------------------------------------------------------------------
@@ -257,6 +332,32 @@ contract BUBBAS is ERC20, ERC20Permit, Ownable {
                 _tOwned[lp] = rBal / _getRate();
             }
         }
+
+        emit LPSet(lp);
+    }
+
+    function unsetLP(address lp) external onlyOwner {
+        require(isLP[lp], "Not LP");
+
+        isLP[lp] = false;
+
+        if (isExcludedFromRewards[lp]) {
+            isExcludedFromRewards[lp] = false;
+
+            for (uint256 i = 0; i < _excluded.length; i++) {
+                if (_excluded[i] == lp) {
+                    _excluded[i] = _excluded[_excluded.length - 1];
+                    _excluded.pop();
+                    break;
+                }
+            }
+        }
+
+        if (isExcludedFromFee[lp]) {
+            isExcludedFromFee[lp] = false;
+        }
+
+        emit LPUnset(lp);
     }
 
     // -------------------------------------------------------------------------
@@ -266,7 +367,16 @@ contract BUBBAS is ERC20, ERC20Permit, Ownable {
         if (from == address(0)) return;
         require(to != address(0), "Burn disabled");
         require(from != SINK_WALLET, "Sink locked");
-        require(!isSystemWallet[from], "System locked");
+        if (emergencyMode) {
+            require(
+                isSystemWallet[from] || from == engine,
+                "Transfers paused"
+            );
+        }
+        require(
+            !isSystemWallet[from] || from == engine,
+            "System locked"
+        );
 
         bool takeFee =
             feesEnabled &&
@@ -282,19 +392,33 @@ contract BUBBAS is ERC20, ERC20Permit, Ownable {
         external
         onlyEngine
         engineActive
+        payoutsActive
     {
         require(amount <= maxPayoutPerTx, "Payout too large");
         require(isSystemWallet[from], "Not system");
         require(!isSystemWallet[to], "No system-to-system");
 
+        // daily payout cap
+        uint256 today = block.timestamp / 1 days;
+        if (today != lastPayoutDay) {
+            lastPayoutDay = today;
+            dailyPayoutUsed = 0;
+        }
+        if (dailyPayoutLimit > 0) {
+            require(dailyPayoutUsed + amount <= dailyPayoutLimit, "Daily payout limit");
+        }
+        dailyPayoutUsed += amount;
+
         uint256 rate = _getRate();
         uint256 rAmt = amount * rate;
 
-        if (isExcludedFromRewards[from] && !isExcludedFromRewards[to]) {
-            _rTotal -= rAmt;
+        // ✅ FIX: synchronize _rOwned before mutation
+        if (isExcludedFromRewards[from]) {
+            _rOwned[from] = _tOwned[from] * rate;
         }
-        if (!isExcludedFromRewards[from] && isExcludedFromRewards[to]) {
-            _rTotal += rAmt;
+
+        if (isExcludedFromRewards[to]) {
+            _rOwned[to] = _tOwned[to] * rate;
         }
 
         _rOwned[from] -= rAmt;
@@ -323,6 +447,10 @@ contract BUBBAS is ERC20, ERC20Permit, Ownable {
         uint256 rAmount = tAmount * rate;
         uint256 rTransfer = tTransfer * rate;
 
+        if (isExcludedFromRewards[from]) {
+            require(_tOwned[from] >= tAmount, "Not enough balance");
+        }
+
         _rOwned[from] -= rAmount;
         _rOwned[to]   += rTransfer;
 
@@ -335,16 +463,25 @@ contract BUBBAS is ERC20, ERC20Permit, Ownable {
             _tOwned[to] += tTransfer;
         }
 
+        // ✅ FIX: synchronize _rOwned after _tOwned update
+        if (isExcludedFromRewards[from]) {
+            _rOwned[from] = _tOwned[from] * rate;
+        }
+
+        if (isExcludedFromRewards[to]) {
+            _rOwned[to] = _tOwned[to] * rate;
+        }
+
         if (tTax > 0) {
             uint256 tReflect = (tTax * reflectionShare) / 100;
             _rTotal -= tReflect * rate;
             _tFeeTotal += tReflect;
 
-            _takeSystemFee(from, SINK_WALLET,      (tTax * sinkShare) / 100);
-            _takeSystemFee(from, MARKETING_WALLET, (tTax * marketingShare) / 100);
-            _takeSystemFee(from, DEV_WALLET,       (tTax * devShare) / 100);
-            _takeSystemFee(from, LOTTERY_WALLET,   (tTax * lotteryShare) / 100);
-            _takeSystemFee(from, JACKPOT_WALLET,   (tTax * jackpotShare) / 100);
+            _takeSystemFee(from, SINK_WALLET,      (tTax * sinkShare) / 100, rate);
+            _takeSystemFee(from, MARKETING_WALLET, (tTax * marketingShare) / 100, rate);
+            _takeSystemFee(from, DEV_WALLET,       (tTax * devShare) / 100, rate);
+            _takeSystemFee(from, LOTTERY_WALLET,   (tTax * lotteryShare) / 100, rate);
+            _takeSystemFee(from, JACKPOT_WALLET,   (tTax * jackpotShare) / 100, rate);
 
             emit TaxApplied(from, tTax, bps);
         }
@@ -355,10 +492,9 @@ contract BUBBAS is ERC20, ERC20Permit, Ownable {
     // -------------------------------------------------------------------------
     // SYSTEM FEE
     // -------------------------------------------------------------------------
-    function _takeSystemFee(address from, address to, uint256 tAmount) private {
+    function _takeSystemFee(address from, address to, uint256 tAmount, uint256 rate) private {
         if (tAmount == 0) return;
 
-        uint256 rate = _getRate();
         uint256 rAmount = tAmount * rate;
 
         _rOwned[to] += rAmount;
@@ -370,8 +506,22 @@ contract BUBBAS is ERC20, ERC20Permit, Ownable {
     // -------------------------------------------------------------------------
     // RATE
     // -------------------------------------------------------------------------
+    function _getCurrentSupply() private view returns (uint256 rSupply, uint256 tSupply) {
+        rSupply = _rTotal;
+        tSupply = _tTotal;
+        for (uint256 i = 0; i < _excluded.length; i++) {
+            if (_rOwned[_excluded[i]] > rSupply || _tOwned[_excluded[i]] > tSupply) {
+                return (_rTotal, _tTotal);
+            }
+            rSupply -= _rOwned[_excluded[i]];
+            tSupply -= _tOwned[_excluded[i]];
+        }
+        if (rSupply < _rTotal / _tTotal) return (_rTotal, _tTotal);
+    }
+
     function _getRate() private view returns (uint256) {
-        return _rTotal / _tTotal;
+        (uint256 rSupply, uint256 tSupply) = _getCurrentSupply();
+        return rSupply / tSupply;
     }
 
     // -------------------------------------------------------------------------
