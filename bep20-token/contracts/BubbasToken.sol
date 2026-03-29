@@ -154,8 +154,8 @@ contract BUBBAS is ERC20, ERC20Permit, Ownable {
     // CONSTRUCTOR
     // -------------------------------------------------------------------------
     constructor(address initialOwner, address _opsWallet)
-        ERC20("BUBBAS", "BUBBAS")
-        ERC20Permit("BUBBAS")
+        ERC20("BUBBAS V2", "BUBBAS")
+        ERC20Permit("BUBBAS V2")
         Ownable(initialOwner)
     {
         engine = ENGINE_WALLET;
