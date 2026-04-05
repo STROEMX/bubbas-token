@@ -1,12 +1,29 @@
 # BUBBAS Token ($BUBBAS)
 
-This repository contains the canonical ERC20 token contract for Bubbas ($BUBBAS), designed as a long-term GameFi settlement and enforcement layer.
+> **Contract Version:** v2.0.0  
+> **Last Updated:** 2026-03-25
 
-The Bubbas ecosystem has been in continuous public operation since 2023, with the current token contract deployed in 2026 as its next-generation settlement and distribution layer.
+This repository contains the smart contract system for Bubbas ($BUBBAS) — a GameFi settlement and enforcement layer on BSC.
+
+The Bubbas ecosystem has been in continuous public operation since 2023, with the current contract system deployed in 2026 as its next-generation settlement, distribution, and game routing layer.
 
 ---
 
-## 📌 Core Principles
+## Contract Architecture
+
+The system consists of three contracts:
+
+| Contract | Purpose |
+|----------|---------|
+| **BUBBAS** | ERC20 token with RFI reflections, fee distribution, and engine-controlled payouts |
+| **PayoutManager** | Per-pool payout routing with rate limits, cooldowns, and safety caps |
+| **GameRouter** | Modular game dispatch router with engine-only execution |
+
+All contracts are non-upgradeable. Operational parameters are adjustable at runtime without redeployment.
+
+---
+
+## Core Principles
 
 ### Fixed Supply
 Total supply is permanently capped at 1,000,000,000 tokens. No minting functions exist.
@@ -18,28 +35,37 @@ Users always retain full control of their funds. No function allows confiscation
 The full contract source is published and verifiable on-chain.
 
 ### No Hidden Backdoors
-The contract contains no functions for emergency drains, liquidity removal, or arbitrary token creation.
+The contract contains no functions for arbitrary token creation, user blacklisting, or forced balance modification.
 
 ---
 
-## ⚙️ Protocol Engine
+## Protocol Engine
 
 BUBBAS integrates with a dedicated protocol engine that performs deterministic settlement and reward distribution.
 
 The engine:
 
-- Cannot mint tokens  
-- Cannot access liquidity pools  
-- Cannot withdraw user funds  
-- Can only execute bounded system payouts under predefined limits  
+- Cannot mint tokens
+- Cannot access liquidity pools
+- Cannot withdraw user funds
+- Can only execute bounded system payouts under predefined limits
 
 All engine actions are transparent and visible on-chain.
 
+### Engine Safety Controls
+
+- **2-step rotation** — engine address changes require proposal + acceptance from the new address
+- **Engine pause** — owner can instantly halt all engine payouts
+- **Payouts pause** — independent toggle to stop payouts without affecting the engine itself
+- **Max payout per tx** — configurable hard cap on any single payout (default: 1M tokens)
+- **Daily payout limit** — configurable cap on total daily outflow
+- **Emergency mode** — freezes all non-system transfers (nuclear option for critical incidents)
+
 ---
 
-## 💰 Transaction Fees & Distribution
+## Transaction Fees & Distribution
 
-External transfers may incur a dynamic transaction fee based on transaction size.
+External transfers incur a dynamic fee based on transaction size (linear curve: 1% → 0.1%).
 
 Collected fees are distributed as follows:
 
@@ -52,29 +78,104 @@ Collected fees are distributed as follows:
 | Lottery      | 18%   |
 | Jackpot      | 12%   |
 
-Internal platform operations are excluded from fees.
+Internal platform operations and system wallets are excluded from fees.
+
+Fees can be globally disabled and re-enabled by the owner.
 
 ---
 
-## 🔐 Administrative Controls
+## PayoutManager
 
-The contract includes limited administrative controls required for protocol operation:
+The PayoutManager routes engine payouts through per-pool safety controls.
 
-- Engine rotation (two-step process)  
-- Emergency engine pause  
-- LP registration  
-- Fee enable/disable  
+### Pool Types
+
+| Pool | Purpose |
+|------|---------|
+| LOTTERY | Regular game rewards |
+| JACKPOT | Large win payouts (can drain to zero) |
+| BANKROLL | House edge / operational pool |
+| RESERVE | Emergency fund (protected) |
+
+### Per-Pool Controls
+
+Each pool has independently configurable:
+
+- **Per-block limit** — max tokens movable in a single block
+- **Per-minute limit** — rate limit per minute (absolute and BPS-based)
+- **Cooldown** — minimum seconds between payouts
+- **Max single payout** — BPS cap relative to pool balance
+- **Min reserve** — BPS floor that must remain after payout
+- **Drain flag** — whether the pool can be fully emptied (e.g. jackpot wins)
+
+### Batch Payouts
+
+`batchPayout()` supports multiple recipients in a single transaction. All limits are validated against the batch total — batch payouts cannot bypass safety gates.
+
+### Emergency Withdraw
+
+Owner can withdraw from the RESERVE pool only, bypassing all limits. For emergency fund recovery.
+
+---
+
+## GameRouter
+
+The GameRouter provides modular game dispatch for the hybrid GameFi architecture.
+
+- **Game registration** — owner registers game contracts by ID
+- **Game removal** — owner can deactivate any game instantly
+- **Engine-only execution** — only the engine can call `execute()`
+- **Reentrancy protection** — `nonReentrant` modifier on all execution
+- **Calldata limit** — 4096 byte hard cap on execution data
+
+---
+
+## Administrative Controls
+
+### Token (BUBBAS)
+
+| Function | Access | Purpose |
+|----------|--------|---------|
+| `setMaxPayoutPerTx` | Owner | Adjust per-transaction payout cap |
+| `setDailyPayoutLimit` | Owner | Adjust daily payout cap |
+| `setEnginePaused` | Owner | Pause/resume engine |
+| `setPayoutsPaused` | Owner | Pause/resume payouts |
+| `setEmergencyMode` | Owner | Freeze all non-system transfers |
+| `setFeesEnabled` | Owner | Enable/disable transaction fees |
+| `proposeEngine` / `acceptEngine` | Owner + new engine | 2-step engine rotation |
+| `proposeOpsWallet` / `acceptOpsWallet` | Owner + new wallet | 2-step OPS wallet rotation |
+| `setLP` / `unsetLP` | Owner | Register/unregister LP pairs |
+
+### PayoutManager
+
+| Function | Access | Purpose |
+|----------|--------|---------|
+| `setGlobalPaused` | Owner | Pause all payouts across all pools |
+| `setMaxRecipientsPerTx` | Owner | Adjust batch size limit |
+| `setMaxPoolBalance` | Owner | Set post-payout balance cap |
+| `proposeEngine` / `acceptEngine` | Owner + new engine | 2-step engine rotation |
+| `setPoolWallet` | Engine | Set pool wallet address |
+| `setPoolConfig` | Engine | Configure pool limits |
+| `setPoolEnabled` | Engine | Enable/disable individual pools |
+| `emergencyWithdraw` | Owner | Withdraw from RESERVE pool |
+
+### GameRouter
+
+| Function | Access | Purpose |
+|----------|--------|---------|
+| `setGame` | Owner | Register a game contract |
+| `removeGame` | Owner | Deactivate a game contract |
+| `setEngine` | Owner | Direct engine swap (emergency) |
+| `proposeEngine` / `acceptEngine` | Owner + new engine | 2-step engine rotation |
 
 These controls:
 
-- Do not allow minting  
-- Do not allow balance confiscation  
-- Do not allow trading restrictions  
-- Do not allow user blacklisting  
+- Do not allow minting
+- Do not allow balance confiscation
+- Do not allow user blacklisting
+- Do not allow unilateral fund extraction or supply modification
 
-All administrative actions are publicly visible.
-
-No administrative function allows unilateral fund extraction or supply modification.
+All administrative actions emit events and are publicly visible on-chain.
 
 ---
 
